@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta-name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Food Delivery Simulation</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; background: #f7f8f8; }
+    h2 { color: #006d5b; margin-top: 10px; }
+    .controls button {
+      margin: 5px; padding: 10px 16px; border: none; border-radius: 6px; color: white;
+      font-weight: bold; cursor: pointer;
+    }
+    #grid {
+      display: grid; grid-template-columns: repeat(20, 30px);
+      justify-content: center; gap: 2px; margin-top: 20px;
+    }
+    .cell {
+      width: 30px; height: 30px; background: #eafbea; border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: bold; color: white; font-size: 12px;
+    }
+    table { border-collapse: collapse; margin: 15px auto; width: 80%; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+    th { background: #f2f2f2; }
+    #results { margin-top: 15px; }
+    canvas { max-width: 600px; margin: 10px auto; display: block; }
+  </style>
+</head>
+<body>
+  <h2>🍔 Smart Food Delivery Simulation (20×20)</h2>
+  <div>Click a cell to set <b>Restaurant (R)</b>, then another to set <b>Home (H)</b>.</div>
+
+  <div class="controls">
+    <button id="btnDFS" style="background:#3b82f6;">DFS</button>
+    <button id="btnBFS" style="background:#a855f7;">BFS</button>
+    <button id="btnDijkstra" style="background:#f59e0b;">Dijkstra</button>
+    <button id="btnAStar" style="background:#ef4444;">A*</button>
+    <button id="btnRunAll" style="background:#059669;">Run All</button>
+    <button id="btnAuto" style="background:#4338ca;">Auto Deliver</button>
+    <button id="btnRandom" style="background:#111827;">Random Blocks</button>
+    <button id="btnReset" style="background:#9ca3af;">Reset Grid</button>
+  </div>
+
+  <div id="grid"></div>
+  <div id="results"></div>
+  <canvas id="chart"></canvas>
+
+  <script>
+    const n = 20;
+    const gridEl = document.getElementById("grid");
+    const resultsEl = document.getElementById("results");
+    const ctx = document.getElementById("chart");
+    let chart = null;
+    const grid = Array.from({ length: n }, () => Array(n).fill(0));
+    let start = null, end = null;
+
+    /* ---------- YOUR FIXED ALGORITHM COLORS ---------- */
+    const colors = {
+      BFS: "orange",
+      DFS: "green",
+      Dijkstra: "purple",
+      AStar: "pink"
+    };
+
+    let cells = [], lastPaths = {};
+
+    function renderGrid() {
+      gridEl.innerHTML = "";
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const c = document.createElement("div");
+          c.className = "cell";
+          if (grid[i][j] === 1) c.style.background = "#fca5a5";
+          if (start && start[0] === i && start[1] === j) {
+            c.style.background = "#3b82f6"; c.textContent = "R";
+          }
+          if (end && end[0] === i && end[1] === j) {
+            c.style.background = "#f59e0b"; c.textContent = "H";
+          }
+          c.addEventListener("click", () => handleCell(i, j));
+          gridEl.appendChild(c);
+        }
+      }
+      cells = document.querySelectorAll(".cell");
+    }
+
+    function handleCell(i, j) {
+      if (!start) { start = [i, j]; renderGrid(); return; }
+      if (!end && !(i === start[0] && j === start[1])) { end = [i, j]; renderGrid(); return; }
+    }
+
+    function resetGrid() { for (let i = 0; i < n; i++) grid[i].fill(0); start = end = null; renderGrid(); resultsEl.innerHTML = ""; if (chart) chart.destroy(); }
+
+    function randomBlocks() {
+      resetGrid();
+      for (let k = 0; k < n * 3; k++) {
+        const i = Math.floor(Math.random() * n), j = Math.floor(Math.random() * n);
+        grid[i][j] = 1;
+      }
+      renderGrid();
+    }
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    /* ------------------------- FIXED SLOW ANIMATION DRAW (single color per algo) ------------------------- */
+    async function draw(path, mainColor) {
+      for (let k = 0; k < path.length; k++) {
+        const [x, y] = path[k];
+        const idx = x * n + y;
+
+        cells[idx].style.background = mainColor;
+        await sleep(80);  // slow animation
+      }
+    }
+    /* --------------------------------------------------------------------------------------------- */
+
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    const inBounds = (x, y) => x >= 0 && x < n && y >= 0 && y < n && grid[x][y] === 0;
+
+    /* ---------- ALGORITHMS ---------- */
+    async function bfs() {
+      const q = [start], vis = new Set([start + ""]), prev = {};
+      while (q.length) {
+        const [x, y] = q.shift();
+        if (x === end[0] && y === end[1]) return reconstruct(prev, end);
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy;
+          if (inBounds(nx, ny) && !vis.has(nx + "," + ny)) {
+            vis.add(nx + "," + ny); prev[[nx, ny]] = [x, y]; q.push([nx, ny]);
+          }
+        }
+      }
+      return [];
+    }
+
+    async function dfs() {
+      const stack = [start], vis = new Set([start + ""]), prev = {};
+      while (stack.length) {
+        const [x, y] = stack.pop();
+        if (x === end[0] && y === end[1]) return reconstruct(prev, end);
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy;
+          if (inBounds(nx, ny) && !vis.has(nx + "," + ny)) {
+            vis.add(nx + "," + ny); prev[[nx, ny]] = [x, y]; stack.push([nx, ny]);
+          }
+        }
+      }
+      return [];
+    }
+
+    async function dijkstra() {
+      const dist = Array.from({ length: n }, () => Array(n).fill(Infinity));
+      const pq = [[0, ...start]], prev = {};
+      dist[start[0]][start[1]] = 0;
+
+      while (pq.length) {
+        pq.sort((a, b) => a[0] - b[0]);
+        const [d, x, y] = pq.shift();
+        if (x === end[0] && y === end[1]) return reconstruct(prev, end);
+
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy;
+          if (inBounds(nx, ny) && dist[nx][ny] > d + 1) {
+            dist[nx][ny] = d + 1; prev[[nx, ny]] = [x, y]; pq.push([d + 1, nx, ny]);
+          }
+        }
+      }
+      return [];
+    }
+
+    async function aStar() {
+      const h = (x, y) => Math.abs(x - end[0]) + Math.abs(y - end[1]);
+      const g = Array.from({ length: n }, () => Array(n).fill(Infinity));
+      const f = Array.from({ length: n }, () => Array(n).fill(Infinity));
+
+      g[start[0]][start[1]] = 0;  
+      f[start[0]][start[1]] = h(...start);
+
+      const open = [[f[start[0]][start[1]], ...start]], prev = {};
+
+      while (open.length) {
+        open.sort((a, b) => a[0] - b[0]);
+        const [ff, x, y] = open.shift();
+        if (x === end[0] && y === end[1]) return reconstruct(prev, end);
+
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy;
+          if (inBounds(nx, ny)) {
+            const tentative = g[x][y] + 1;
+            if (tentative < g[nx][ny]) {
+              prev[[nx, ny]] = [x, y];
+              g[nx][ny] = tentative;
+              f[nx][ny] = tentative + h(nx, ny);
+              open.push([f[nx][ny], nx, ny]);
+            }
+          }
+        }
+      }
+      return [];
+    }
+
+    function reconstruct(prev, end) {
+      const path = [];
+      let node = end;
+      while (node && prev[node]) { path.push(node); node = prev[node]; }
+      if (node) path.push(start);
+      return path.reverse();
+    }
+
+    function eta(steps) { return `${(steps * 0.05).toFixed(2)} min`; }
+
+    async function runAlgo(type) {
+      if (!start || !end) { alert("Please select start and end"); return; }
+
+      renderGrid();
+      resultsEl.innerHTML = "";
+      if (chart) chart.destroy();
+
+      const t0 = performance.now();
+      let path = [];
+
+      if (type === "BFS") path = await bfs();
+      else if (type === "DFS") path = await dfs();
+      else if (type === "Dijkstra") path = await dijkstra();
+      else if (type === "A*") path = await aStar();
+
+      const t1 = performance.now();
+
+      const color = (type === "A*") ? colors.AStar : colors[type];
+      draw(path, color);
+
+      resultsEl.innerHTML =
+        `<b>Delivered via ${type}</b><br>Steps: ${path.length - 1},
+         Time: ${(t1 - t0).toFixed(1)}ms, ETA: ${eta(path.length)}`;
+    }
+
+    async function runAll(fromAuto = false) {
+      if (!start || !end) { alert("Please select start and end"); return; }
+      renderGrid(); lastPaths = {};
+
+      const algos = ["DFS", "BFS", "Dijkstra", "A*"];
+      for (const a of algos) {
+        const t0 = performance.now();
+        let path = [];
+
+        if (a === "DFS") path = await dfs();
+        else if (a === "BFS") path = await bfs();
+        else if (a === "Dijkstra") path = await dijkstra();
+        else if (a === "A*") path = await aStar();
+
+        const t1 = performance.now();
+        lastPaths[a] = { path, comp: Math.round(t1 - t0) };
+      }
+
+      const rows = [];
+      for (const a of ["A*", "BFS", "Dijkstra", "DFS"]) {
+        const p = lastPaths[a] || { path: [], comp: "—" };
+        const s = p.path.length ? p.path.length - 1 : "—";
+        rows.push({ algo: a, steps: s, comp: p.comp });
+      }
+
+      const valid = rows.filter(r => r.steps !== "—");
+      valid.sort((a, b) => (a.steps - b.steps) || (a.comp - b.comp));
+      const best = valid.length ? valid[0].algo : null;
+
+      if (fromAuto || event?.target?.id === "btnRunAll") {
+        let html =
+          `<b>Comparison</b>
+           <table>
+             <tr><th>Algorithm</th><th>Steps</th><th>Time(ms)</th><th>ETA</th></tr>`;
+
+        for (const r of rows) {
+          const hl = r.algo === best ? 'style="background:#ecfdf5;font-weight:600"' : "";
+          html += `<tr ${hl}><td>${r.algo}</td><td>${r.steps}</td><td>${r.comp}</td>
+                   <td>${r.steps === "—" ? "—" : eta(r.steps)}</td></tr>`;
+        }
+        html += `</table>`;
+
+        if (best)
+          html += `<div style="color:#047857;font-weight:700;">Fastest: ${best} — delivering now 🚴‍♂️</div>`;
+        resultsEl.innerHTML = html;
+
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: rows.map(r => r.algo),
+            datasets: [
+              { label: "Steps", data: rows.map(r => r.steps === "—" ? 0 : r.steps),
+                backgroundColor: "rgba(59,130,246,0.6)" },
+              { label: "Compute(ms)",
+                data: rows.map(r => r.comp === "—" ? 0 : r.comp),
+                backgroundColor: "rgba(249,115,22,0.6)" }
+            ]
+          },
+          options: { responsive: true, plugins: { legend: { position: "top" } },
+                     scales: { y: { beginAtZero: true } } }
+        });
+      } else {
+        resultsEl.innerHTML = "";
+        if (chart) chart.destroy();
+      }
+
+      if (best && lastPaths[best]) {
+        const col = best === "A*" ? colors.AStar : colors[best];
+        draw(lastPaths[best].path, col);
+      }
+    }
+
+    document.getElementById("btnDFS").onclick = () => runAlgo("DFS");
+    document.getElementById("btnBFS").onclick = () => runAlgo("BFS");
+    document.getElementById("btnDijkstra").onclick = () => runAlgo("Dijkstra");
+    document.getElementById("btnAStar").onclick = () => runAlgo("A*");
+    document.getElementById("btnRunAll").onclick = () => runAll(false);
+    document.getElementById("btnAuto").onclick = () => runAll(true);
+    document.getElementById("btnReset").onclick = resetGrid;
+    document.getElementById("btnRandom").onclick = randomBlocks;
+
+    renderGrid();
+  </script>
+</body>
+</html>
